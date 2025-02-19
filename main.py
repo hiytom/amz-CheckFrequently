@@ -7,11 +7,16 @@ from scraper import get_product_details
 from playwright.sync_api import sync_playwright
 import json
 
-# 配置
-SEARCH_QUERY = "vintage apron"
-CSV_FILE = "amazon_asins.csv"
-OUTPUT_FILE = "amazon_listings.csv"
-MAX_PROCESSES = 5  # 控制最大进程数，防止被封 IP
+# 读取配置文件
+with open("config.json", "r") as f:
+    config = json.load(f)
+
+SEARCH_QUERY = config["search_query"]
+CSV_FILE = config["csv_file"]
+OUTPUT_FILE = config["output_file"]
+MAX_PROCESSES = config["max_processes"]
+MAX_PAGES = config["max_pages"]
+COOKIES_FILE = config["cookies_file"]
 
 
 def process_asin(asin):

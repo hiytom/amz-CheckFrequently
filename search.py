@@ -2,9 +2,16 @@ from playwright.sync_api import sync_playwright
 import time
 import random
 import csv
+import json
+
+# 读取配置文件
+with open("config.json", "r") as f:
+    config = json.load(f)
+
+MAX_PAGES = config["max_pages"]
 
 
-def search_products(query, csv_file, max_pages=1):
+def search_products(query, csv_file, max_pages=MAX_PAGES):
     """
     搜索 Amazon 关键词，获取 ASIN 列表，并存入 CSV。
 
