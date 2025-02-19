@@ -1,17 +1,10 @@
-from playwright.sync_api import sync_playwright
-import time
+from playwright.async_api import async_playwright
+import asyncio
 import random
 import csv
-import json
-
-# 读取配置文件
-with open("config.json", "r") as f:
-    config = json.load(f)
-
-MAX_PAGES = config["max_pages"]
 
 
-def search_products(query, csv_file, max_pages=MAX_PAGES):
+async def search_products(query, csv_file, max_pages=1):
     """
     搜索 Amazon 关键词，获取 ASIN 列表，并存入 CSV。
 
@@ -22,14 +15,14 @@ def search_products(query, csv_file, max_pages=MAX_PAGES):
     """
     search_url = f"https://www.amazon.com/s?k={query.replace(' ', '+')}"
     asin_list = []
-    current_page = 1  # 当前页数
+    current_page = 1
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
 
         # 伪装真实浏览器
-        page.set_extra_http_headers({
+        await page.set_extra_http_headers({
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
             "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
@@ -41,17 +34,15 @@ def search_products(query, csv_file, max_pages=MAX_PAGES):
         print(f"🔍 正在搜索关键词: {query}")
 
         # 访问搜索页面
-        page.goto(search_url, timeout=90000)
-        page.wait_for_selector("div.s-main-slot", timeout=60000)
+        await page.goto(search_url, timeout=90000)
+        await page.wait_for_selector("div.s-main-slot", timeout=60000)
 
         while current_page <= max_pages:
             print(f"📄 正在爬取第 {current_page} 页...")
 
             # 获取 ASIN
-            asin_elements = page.query_selector_all(
-                "div.s-main-slot div[data-asin]")
-            current_asins = [elem.get_attribute(
-                "data-asin") for elem in asin_elements if elem.get_attribute("data-asin")]
+            asin_elements = await page.query_selector_all("div.s-main-slot div[data-asin]")
+            current_asins = [await elem.get_attribute("data-asin") for elem in asin_elements if await elem.get_attribute("data-asin")]
 
             if not current_asins:
                 print("⚠️ 没有找到 ASIN，可能触发了反爬机制！")
@@ -60,21 +51,21 @@ def search_products(query, csv_file, max_pages=MAX_PAGES):
             print(f"✅ 第 {current_page} 页找到 {len(current_asins)} 个 ASIN")
             asin_list.extend(current_asins)
 
-            # 休息 10-20 秒，降低反爬风险
-            time.sleep(random.uniform(5, 10))
+            # 休息 3-5 秒，降低反爬风险
+            await asyncio.sleep(random.uniform(3, 5))
 
             # 处理翻页逻辑
-            next_button = page.query_selector('a.s-pagination-next')
-            if current_page < max_pages and next_button and "s-pagination-disabled" not in next_button.get_attribute("class"):
+            next_button = await page.query_selector('a.s-pagination-next')
+            if current_page < max_pages and next_button and "s-pagination-disabled" not in (await next_button.get_attribute("class")):
                 print("➡️ 翻页中...")
-                next_button.click()
-                time.sleep(random.uniform(10, 15))  # 等待页面加载
+                await next_button.click()
+                await asyncio.sleep(random.uniform(3, 5))  # 等待页面加载
                 current_page += 1
             else:
                 print("🚀 所有搜索结果已爬取完毕！")
                 break
 
-        browser.close()
+        await browser.close()
 
     # 存入 CSV 文件
     if asin_list:
