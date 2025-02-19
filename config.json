@@ -3,6 +3,6 @@
   "csv_file": "amazon_asins.csv",
   "output_file": "amazon_listings.csv",
   "max_processes": 5,
-  "max_pages": 3,
+  "max_pages": 1,
   "cookies_file": "amazon_cookies.json"
 }
