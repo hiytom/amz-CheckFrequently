@@ -54,7 +54,7 @@ def search_products(query, csv_file, max_pages=1):
             asin_list.extend(current_asins)
 
             # 休息 10-20 秒，降低反爬风险
-            time.sleep(random.uniform(10, 20))
+            time.sleep(random.uniform(5, 10))
 
             # 处理翻页逻辑
             next_button = page.query_selector('a.s-pagination-next')
