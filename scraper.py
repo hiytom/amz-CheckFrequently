@@ -22,15 +22,23 @@ async def get_product_details(asin, page):
         price_element = await page.query_selector("span.a-offscreen")
         price = await price_element.inner_text() if price_element else "Price not found"
 
+        # 获取上月销量
+        bought_element = await page.query_selector("#social-proofing-faceout-title-tk_bought .a-text-bold")
+        if bought_element:
+            bought_text = await bought_element.inner_text()
+            bought = bought_text.split()[0] if bought_text else "Not found"
+        else:
+            bought = "< 50"  # 或者返回 "0" 以保证数据格式一致
+
         # **检查 `Frequently returned item` 标签**
         frequently_returned_element = await page.query_selector(
             "div#buyingOptionNostosBadge_feature_div .hrrv-badge-T2-title p span.a-text-bold")
         frequently_returned = True if frequently_returned_element else False
 
         print(
-            f"✅ 爬取成功: {title} - {price} - Frequently Returned: {frequently_returned}")
+            f"✅ 爬取成功: {title} - {price} - {bought} - Frequently Returned: {frequently_returned}")
 
-        return {"asin": asin, "title": title, "price": price, "url": url, "frequently_returned": frequently_returned}
+        return {"asin": asin, "title": title, "price": price, "bought": bought, "url": url, "frequently_returned": frequently_returned}
 
     except Exception as e:
         print(f"❌ 爬取失败: {asin}，错误: {e}")

@@ -76,17 +76,17 @@ async def main():
         await browser.close()
 
     # 存入 CSV 文件
-    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as file:
+    with open(SEARCH_QUERY + OUTPUT_FILE, "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(["ASIN", "Title", "Price",
-                        "URL", "Frequently Returned"])
+                        "URL", "Bought", "Frequently Returned"])
 
         for product_data in results:
             writer.writerow([product_data["asin"], product_data["title"], product_data["price"],
-                             product_data["url"], product_data["frequently_returned"]])
+                             product_data["url"], product_data["bought"], product_data["frequently_returned"]])
             print(f"✅ 已存入 CSV: {product_data['title']}")
 
-    print(f"\n🎉 所有商品信息已保存到 `{OUTPUT_FILE}`！")
+    print(f"\n🎉 所有商品信息已保存到 `{SEARCH_QUERY + OUTPUT_FILE}`！")
 
 # 运行主函数
 if __name__ == "__main__":
