@@ -4,6 +4,7 @@ import json
 import random
 import pandas as pd
 import time  # 用于统计时间
+import re  # 引入正则库
 
 COOKIES_FILE = "amazon_cookies.json"
 OUTPUT_FILE = "amazon_products.csv"
@@ -36,7 +37,18 @@ async def get_product_details(asin, page):
         title_element = await page.query_selector("#productTitle")
         title = await title_element.inner_text() if title_element else "Title not found"
 
-        # **修复 `price` 解析**
+        # 获取品牌（Brand）
+        brand_element = await page.query_selector("#bylineInfo")
+        brand = await brand_element.inner_text() if brand_element else "Brand not found"
+        # **处理品牌字段**
+        if "Visit the" in brand and "Store" in brand:
+            brand = brand.replace("Visit the", "").replace("Store", "").strip()
+        elif "Brand:" in brand:
+            brand = brand.replace("Brand:", "").strip()
+        # 只保留品牌名
+        brand = re.sub(r'[^a-zA-Z0-9\s-]', '', brand).strip()
+
+        # 获取价格
         price = "Price not found"
 
         # **第一种方式：优先尝试 `a-offscreen`**
@@ -95,6 +107,7 @@ async def get_product_details(asin, page):
 
         return {
             "asin": asin,
+            "brand": brand,
             "title": title,
             "price": price,
             "bought": bought,
@@ -114,7 +127,7 @@ async def get_product_details(asin, page):
 
 async def test_scraper():
     """ 测试爬取单个 ASIN，并递归爬取所有变体 """
-    test_asin = "B0CN8SL6MV"
+    test_asin = "B0C61QXH6F"
     scraped_data = {}
     to_scrape = [test_asin]
     seen_asins = set()
