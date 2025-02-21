@@ -85,14 +85,24 @@ async def main():
 
     # **存入 CSV 文件**
     with open(SEARCH_QUERY + OUTPUT_FILE, "w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
-        writer.writeheader()
+        writer = csv.writer(file)
+
+        # 读取字段列表，去掉 URL 字段
+        field_names = [field for field in results[0].keys() if field != "url"]
+
+        # 写入表头
+        writer.writerow(field_names)
 
         for product_data in results:
-            writer.writerow(product_data)
+            # 将 ASIN 转换为超链接
+            product_data["asin"] = f'=HYPERLINK("https://www.amazon.com/dp/{product_data["asin"]}", "{product_data["asin"]}")'
+
+            # 写入数据，跳过 URL 字段
+            writer.writerow([product_data[field] for field in field_names])
+
+            print(f"✅ 已存入 CSV: {product_data['title']}")
 
     print(f"\n🎉 所有商品信息已保存到 `{SEARCH_QUERY + OUTPUT_FILE}`！")
-
 
 # 运行主函数
 if __name__ == "__main__":
