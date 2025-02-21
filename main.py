@@ -22,7 +22,7 @@ COOKIES_FILE = config["cookies_file"]
 
 
 async def worker(queue, context, results):
-    """任务队列 Worker：从队列获取 ASIN 并爬取"""
+    """任务队列 Worker: 从队列获取 ASIN 并爬取"""
     while not queue.empty():
         asin = await queue.get()
         print(f"🛒 任务队列领取 ASIN: {asin}")
@@ -87,8 +87,9 @@ async def main():
     with open(SEARCH_QUERY + OUTPUT_FILE, "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
 
-        # 读取字段列表，去掉 URL 字段
-        field_names = [field for field in results[0].keys() if field != "url"]
+        # 读取字段列表，跳过 `url` 和 `brand_link` 字段
+        field_names = [field for field in results[0].keys() if field not in [
+            "url", "brand_link"]]
 
         # 写入表头
         writer.writerow(field_names)
@@ -97,12 +98,15 @@ async def main():
             # 将 ASIN 转换为超链接
             product_data["asin"] = f'=HYPERLINK("https://www.amazon.com/dp/{product_data["asin"]}", "{product_data["asin"]}")'
 
-            # 写入数据，跳过 URL 字段
+            # 将品牌链接转换为超链接
+            if product_data.get("brand_link"):
+                product_data["brand"] = f'=HYPERLINK("{product_data["brand_link"]}", "{product_data["brand"]}")'
+
+            # 写入数据，跳过 `url` 和 `brand_link` 字段
             writer.writerow([product_data[field] for field in field_names])
 
-            print(f"✅ 已存入 CSV: {product_data['title']}")
-
     print(f"\n🎉 所有商品信息已保存到 `{SEARCH_QUERY + OUTPUT_FILE}`！")
+
 
 # 运行主函数
 if __name__ == "__main__":

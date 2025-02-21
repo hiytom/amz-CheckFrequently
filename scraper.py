@@ -37,9 +37,11 @@ async def get_product_details(asin, page):
         title_element = await page.query_selector("#productTitle")
         title = await title_element.inner_text() if title_element else "Title not found"
 
-        # 获取品牌（Brand）
+        # 获取品牌（Brand）和品牌链接
         brand_element = await page.query_selector("#bylineInfo")
         brand = await brand_element.inner_text() if brand_element else "Brand not found"
+        brand_link = await brand_element.get_attribute("href") if brand_element else None
+
         # **处理品牌字段**
         if "Visit the" in brand and "Store" in brand:
             brand = brand.replace("Visit the", "").replace("Store", "").strip()
@@ -47,6 +49,10 @@ async def get_product_details(asin, page):
             brand = brand.replace("Brand:", "").strip()
         # 只保留品牌名
         brand = re.sub(r'[^a-zA-Z0-9\s-]', '', brand).strip()
+
+        # 如果品牌链接存在，则将其转换为完整的URL
+        if brand_link and not brand_link.startswith("http"):
+            brand_link = f"https://www.amazon.com{brand_link}"
 
         # 获取价格
         price = "Price not found"
@@ -108,6 +114,7 @@ async def get_product_details(asin, page):
         return {
             "asin": asin,
             "brand": brand,
+            "brand_link": brand_link,  # 新增品牌链接
             "title": title,
             "price": price,
             "bought": bought,
@@ -126,8 +133,8 @@ async def get_product_details(asin, page):
 
 
 async def test_scraper():
-    """ 测试爬取单个 ASIN，并递归爬取所有变体 """
-    test_asin = "B0C61QXH6F"
+    """ 测试爬取单个 ASIN, 并递归爬取所有变体 """
+    test_asin = "B0CN8SL6MV"
     scraped_data = {}
     to_scrape = [test_asin]
     seen_asins = set()
