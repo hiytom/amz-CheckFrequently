@@ -70,24 +70,29 @@ async def main():
         # 创建任务队列的 Workers（**创建和 ASIN 数量相同的任务**）
         tasks = [worker(queue, context, results)
                  for _ in range(min(len(asins), MAX_WORKERS))]
-
         await asyncio.gather(*tasks)  # **确保所有任务都执行完**
 
         # 关闭浏览器
         await browser.close()
 
-    # 存入 CSV 文件
+    # **✅ 动态提取字段，不写死**
+    if not results:
+        print("❌ 没有爬取到数据")
+        return
+
+    # **获取 CSV 头部（从第一个商品的数据动态提取）**
+    fieldnames = list(results[0].keys())
+
+    # **存入 CSV 文件**
     with open(SEARCH_QUERY + OUTPUT_FILE, "w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(["ASIN", "Title", "Price",
-                        "URL", "Bought", "FabricType", "Frequently Returned"])
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
 
         for product_data in results:
-            writer.writerow([product_data["asin"], product_data["title"], product_data["price"],
-                             product_data["url"], product_data["bought"], product_data["fabric_type"], product_data["frequently_returned"]])
-            print(f"✅ 已存入 CSV: {product_data['title']}")
+            writer.writerow(product_data)
 
     print(f"\n🎉 所有商品信息已保存到 `{SEARCH_QUERY + OUTPUT_FILE}`！")
+
 
 # 运行主函数
 if __name__ == "__main__":
