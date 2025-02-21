@@ -4,6 +4,7 @@ import json
 from search import search_products
 from scraper import get_product_details
 from playwright.async_api import async_playwright
+import time  # 用于统计时间
 
 # 配置
 CONFIG_FILE = "config.json"
@@ -79,15 +80,27 @@ async def main():
     with open(SEARCH_QUERY + OUTPUT_FILE, "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(["ASIN", "Title", "Price",
-                        "URL", "Bought", "Frequently Returned"])
+                        "URL", "Bought", "FabricType", "Frequently Returned"])
 
         for product_data in results:
             writer.writerow([product_data["asin"], product_data["title"], product_data["price"],
-                             product_data["url"], product_data["bought"], product_data["frequently_returned"]])
+                             product_data["url"], product_data["bought"], product_data["fabric_type"], product_data["frequently_returned"]])
             print(f"✅ 已存入 CSV: {product_data['title']}")
 
     print(f"\n🎉 所有商品信息已保存到 `{SEARCH_QUERY + OUTPUT_FILE}`！")
 
 # 运行主函数
 if __name__ == "__main__":
+    # 记录开始时间
+    start_time = time.perf_counter()
+
     asyncio.run(main())
+
+    # 记录结束时间
+    end_time = time.perf_counter()
+
+    # 计算并打印总耗时
+    total_time = end_time - start_time
+    print("=" * 50)
+    print(f"⏳ 整个 `main.py` 运行时间: {total_time:.2f} 秒")
+    print("=" * 50)
