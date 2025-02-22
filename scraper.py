@@ -29,9 +29,12 @@ async def get_product_details(asin, page):
     print(f"📦 正在爬取商品详情: {url}")
 
     try:
-        await asyncio.sleep(random.uniform(1, 3))  # 随机延迟，减少风控
-        await page.goto(url, timeout=90000)
-        await page.wait_for_selector("#productTitle", timeout=60000)
+        # 随机延迟，减少风控
+        await asyncio.sleep(random.uniform(0.5, 1.5))  # 减少延迟时间
+
+        # 访问页面，等待 DOM 加载完成
+        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        await page.wait_for_selector("#productTitle", timeout=30000)
 
         # 获取商品标题
         title_element = await page.query_selector("#productTitle")
@@ -133,8 +136,8 @@ async def get_product_details(asin, page):
 
 
 async def test_scraper():
-    """ 测试爬取单个 ASIN, 并递归爬取所有变体 """
-    test_asin = "B0CN8SL6MV"
+    """ 测试爬取单个 ASIN，并递归爬取所有变体 """
+    test_asin = "B0C61QXH6F"
     scraped_data = {}
     to_scrape = [test_asin]
     seen_asins = set()

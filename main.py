@@ -27,6 +27,10 @@ async def worker(queue, context, results):
         asin = await queue.get()
         print(f"🛒 任务队列领取 ASIN: {asin}")
         page = await context.new_page()
+
+        # 禁用不必要的资源（图片、CSS、字体等）
+        await page.route("**/*.{png,jpg,jpeg,gif,svg,webp,css,woff,woff2}", lambda route: route.abort())
+
         product_data = await get_product_details(asin, page)
         await page.close()
         queue.task_done()  # **标记任务已完成**
@@ -50,7 +54,15 @@ async def main():
 
     # 创建 Playwright 浏览器
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-gpu",
+                "--disable-web-security",
+                "--disable-dev-shm-usage",
+                "--no-sandbox"
+            ]
+        )
         context = await browser.new_context()
 
         # **加载 Amazon 登录 Cookies**
