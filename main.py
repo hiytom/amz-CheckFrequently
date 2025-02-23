@@ -21,20 +21,26 @@ MAX_PAGES = config["max_pages"]
 COOKIES_FILE = config["cookies_file"]
 
 
-async def worker(queue, context, results):
+async def worker(queue, context, results, seen_asins):
     """任务队列 Worker: 从队列获取 ASIN 并爬取"""
     while not queue.empty():
         asin = await queue.get()
+        if asin in seen_asins:
+            queue.task_done()  # 标记任务已完成
+            continue
+
         print(f"🛒 任务队列领取 ASIN: {asin}")
         page = await context.new_page()
 
-        # 禁用不必要的资源（图片、CSS、字体等）
-        await page.route("**/*.{png,jpg,jpeg,gif,svg,webp,css,woff,woff2}", lambda route: route.abort())
+        # 禁用不必要的资源
+        await page.route("**/*.{png,jpg,jpeg,gif,svg,webp,css,woff,woff2,js,mp4,webm}", lambda route: route.abort())
 
         product_data = await get_product_details(asin, page)
         await page.close()
         queue.task_done()  # **标记任务已完成**
+
         if product_data:
+            seen_asins.add(asin)  # 记录已处理的 ASIN
             results.append(product_data)  # **存储结果**
 
 
@@ -47,6 +53,7 @@ async def main():
         return
 
     queue = asyncio.Queue()
+    seen_asins = set()  # 记录已处理的 ASIN
 
     # 添加所有 ASIN 到队列
     for asin in asins:
@@ -80,7 +87,7 @@ async def main():
         results = []
 
         # 创建任务队列的 Workers（**创建和 ASIN 数量相同的任务**）
-        tasks = [worker(queue, context, results)
+        tasks = [worker(queue, context, results, seen_asins)
                  for _ in range(min(len(asins), MAX_WORKERS))]
         await asyncio.gather(*tasks)  # **确保所有任务都执行完**
 

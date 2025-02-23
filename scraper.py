@@ -8,6 +8,7 @@ import re  # 引入正则库
 
 COOKIES_FILE = "amazon_cookies.json"
 OUTPUT_FILE = "amazon_products.csv"
+MAX_RETRIES = 3  # 最大重试次数
 
 
 async def get_variants_asins(page):
@@ -23,14 +24,14 @@ async def get_variants_asins(page):
     return list(variant_asins)
 
 
-async def get_product_details(asin, page):
+async def get_product_details(asin, page, retry_count=0):
     """爬取商品详情"""
     url = f"https://www.amazon.com/dp/{asin}"
     print(f"📦 正在爬取商品详情: {url}")
 
     try:
         # 随机延迟，减少风控
-        await asyncio.sleep(random.uniform(0.5, 1.5))  # 减少延迟时间
+        await asyncio.sleep(random.uniform(0.3, 1.0))  # 减少延迟时间
 
         # 访问页面，等待 DOM 加载完成
         await page.goto(url, timeout=30000, wait_until="domcontentloaded")
@@ -112,6 +113,10 @@ async def get_product_details(asin, page):
         # 获取变体 ASIN
         variant_asins = await get_variants_asins(page)
 
+        # 如果是重试成功，打印提示
+        if retry_count > 0:
+            print(f"🔄 ASIN {asin} 重试成功！")
+
         print(f"✅ 爬取成功")
 
         return {
@@ -129,10 +134,14 @@ async def get_product_details(asin, page):
 
     except Exception as e:
         print(f"❌ 爬取失败: {asin}，错误: {e}")
-        if "ERR_ABORTED" in str(e):
-            print(f"⚠️ ASIN {asin} 加入重试队列")
+        if retry_count < MAX_RETRIES:
+            print(f"⚠️ ASIN {asin} 加入重试队列，重试次数: {retry_count + 1}")
+            await asyncio.sleep(random.uniform(1, 3))  # 重试前等待
+            # 递归重试
+            return await get_product_details(asin, page, retry_count + 1)
+        else:
+            print(f"🚨 ASIN {asin} 重试次数已达上限，放弃爬取")
             return {"asin": asin, "retry": True}  # **返回 retry 标记**
-        return None
 
 
 async def test_scraper():
