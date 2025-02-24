@@ -30,10 +30,10 @@ async def get_product_details(asin, page, retry_count=0):
     print(f"📦 正在爬取商品详情: {url}")
 
     try:
-        # 随机延迟，减少风控
-        await asyncio.sleep(random.uniform(0.3, 1.0))  # 减少延迟时间
+        # 随机延迟，减少风控（保持范围较小）
+        await asyncio.sleep(random.uniform(0.2, 0.8))
 
-        # 访问页面，等待 DOM 加载完成
+        # 恢复 domcontentloaded，只等待主要内容加载
         await page.goto(url, timeout=30000, wait_until="domcontentloaded")
         await page.wait_for_selector("#productTitle", timeout=30000)
 
@@ -51,43 +51,30 @@ async def get_product_details(asin, page, retry_count=0):
             brand = brand.replace("Visit the", "").replace("Store", "").strip()
         elif "Brand:" in brand:
             brand = brand.replace("Brand:", "").strip()
-        # 只保留品牌名
         brand = re.sub(r'[^a-zA-Z0-9\s-]', '', brand).strip()
 
-        # 如果品牌链接存在，则将其转换为完整的URL
         if brand_link and not brand_link.startswith("http"):
             brand_link = f"https://www.amazon.com{brand_link}"
 
         # 获取价格
         price = "Price not found"
-
-        # **第一种方式：优先尝试 `a-offscreen`**
         price_element = await page.query_selector("span.a-offscreen")
         if price_element:
             price_text = await price_element.inner_text()
             if price_text.strip():
                 price = price_text.strip()
 
-        # **第二种方式：拼接 `a-price-whole` + `a-price-fraction`**
         if price == "Price not found":
             price_whole_element = await page.query_selector("span.a-price-whole")
             price_fraction_element = await page.query_selector("span.a-price-fraction")
-
             whole_text = (await price_whole_element.inner_text()).strip() if price_whole_element else ""
             fraction_text = (await price_fraction_element.inner_text()).strip() if price_fraction_element else ""
-
-            # **去掉换行符和空格**
-            whole_text = whole_text.replace(
-                "\n", "").replace(" ", "").replace(".", "")
+            whole_text = whole_text.replace("\n", "").replace(" ", "").replace(".", "")
             fraction_text = fraction_text.replace("\n", "").replace(" ", "")
-
-            # **合并价格**
             if whole_text and fraction_text:
                 price = f"${whole_text}.{fraction_text}"
-            elif whole_text:  # **只有整数部分**
+            elif whole_text:
                 price = f"${whole_text}"
-            else:
-                price = "Price not found"
 
         # 获取上月销量
         bought_element = await page.query_selector("#social-proofing-faceout-title-tk_bought .a-text-bold")
@@ -121,20 +108,43 @@ async def get_product_details(asin, page, retry_count=0):
 
         if rating_element:
             rating_text = await rating_element.inner_text()
-            # 提取 "4.5 out of 5 stars" 中的 "4.5"
             rating_match = re.search(r"(\d+\.\d+|\d+)", rating_text)
             rating = rating_match.group(0) if rating_match else "Rating not found"
 
         if review_count_element:
             review_text = await review_count_element.inner_text()
-            # 提取 "1,234 ratings" 中的 "1234"，去掉逗号
             review_match = re.search(r"(\d+,?\d*)", review_text)
             review_count = review_match.group(0).replace(",", "") if review_match else "Review count not found"
 
-        # 如果是重试成功，打印提示
+        # 获取 Date First Available（优化为单次查询 + 缓存选择器）
+        date_first_available = "Date not found"
+        date_selectors = [
+            "#detailBullets_feature_div li span:has-text('Date First Available')",
+            "#productDetails_detailBullets_sections1 tr:has-text('Date First Available') td",
+            "#productDetails_techSpec_section_1 tr:has-text('Date First Available') td",
+            "th.prodDetSectionEntry:has-text('Date First Available') + td"
+        ]
+
+        # 单次查询所有可能的选择器，减少循环开销
+        for selector in date_selectors:
+            date_element = await page.query_selector(selector)
+            if date_element:
+                date_value = await date_element.inner_text()
+                date_match = re.search(r"(?:\w+\s+\d{1,2},\s+\d{4}|\d{1,2}\s+\w+\s+\d{4})", date_value)
+                if date_match:
+                    date_first_available = date_match.group(0).strip()
+                    # 只在成功时打印日志，减少 I/O
+                    # print(f"ℹ️ 找到 Date First Available: {date_first_available} (使用选择器: {selector})")
+                    break
+                # 如果调试需要，可取消注释
+                # else:
+                #     print(f"ℹ️ 提取值非日期格式: {date_value} (选择器: {selector})")
+            # 如果调试需要，可取消注释
+            # else:
+            #     print(f"ℹ️ 未找到 Date First Available (选择器: {selector})")
+
         if retry_count > 0:
             print(f"🔄 ASIN {asin} 重试成功！")
-
         print(f"✅ 爬取成功")
 
         return {
@@ -149,19 +159,19 @@ async def get_product_details(asin, page, retry_count=0):
             "frequently_returned": frequently_returned,
             "variants": variant_asins,
             "rating": rating,
-            "review_count": review_count  # 新增评分数量字段
+            "review_count": review_count,
+            "date_first_available": date_first_available
         }
 
     except Exception as e:
         print(f"❌ 爬取失败: {asin}，错误: {e}")
         if retry_count < MAX_RETRIES:
             print(f"⚠️ ASIN {asin} 加入重试队列，重试次数: {retry_count + 1}")
-            await asyncio.sleep(random.uniform(1, 3))  # 重试前等待
-            # 递归重试
+            await asyncio.sleep(random.uniform(1, 3))
             return await get_product_details(asin, page, retry_count + 1)
         else:
             print(f"🚨 ASIN {asin} 重试次数已达上限，放弃爬取")
-            return {"asin": asin, "retry": True}  # **返回 retry 标记**
+            return {"asin": asin, "retry": True}
 
 
 async def test_scraper():
@@ -171,14 +181,12 @@ async def test_scraper():
     to_scrape = [test_asin]
     seen_asins = set()
 
-    # 记录开始时间
     start_time = time.perf_counter()
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
 
-        # **加载 Amazon 登录 Cookies**
         try:
             with open(COOKIES_FILE, "r") as f:
                 cookies = json.load(f)
@@ -200,12 +208,10 @@ async def test_scraper():
             product_info = await get_product_details(current_asin, page)
 
             if product_info:
-                if product_info.get("retry"):  # **失败重试逻辑**
-                    to_scrape.append(current_asin)  # **将失败的 ASIN 重新加入队列**
+                if product_info.get("retry"):
+                    to_scrape.append(current_asin)
                 else:
                     scraped_data[current_asin] = product_info
-
-                    # **避免 KeyError: 'variants'**
                     if "variants" in product_info:
                         for variant_asin in product_info["variants"]:
                             if variant_asin not in seen_asins and variant_asin not in to_scrape:
@@ -214,25 +220,21 @@ async def test_scraper():
         await page.close()
         await browser.close()
 
-        # 记录结束时间
         end_time = time.perf_counter()
-        total_time = end_time - start_time  # 计算总爬取时间
+        total_time = end_time - start_time
 
-        # 保存数据到 CSV
-        df = pd.DataFrame(scraped_data.values())  # 直接转换为 DataFrame
+        df = pd.DataFrame(scraped_data.values())
         df.to_csv(OUTPUT_FILE, index=False)
         print(f"✅ 数据已保存到 {OUTPUT_FILE}")
 
-        # **遍历 JSON 数据输出**
         print("\n🛒 爬取完成！所有数据如下：")
         for asin, data in scraped_data.items():
             print("=" * 50)
-            print(f"ASIN: {asin}")  # **只打印一次**
+            print(f"ASIN: {asin}")
             for key, value in data.items():
-                if key != "asin":  # **避免 `asin` 重复打印**
+                if key != "asin":
                     print(f"{key}: {value}")
 
-        # **打印爬取时间统计**
         print("=" * 50)
         print(f"⏱️ 总爬取时间: {total_time:.2f} 秒")
         print("=" * 50)
