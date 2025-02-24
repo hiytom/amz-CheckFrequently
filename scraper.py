@@ -113,6 +113,24 @@ async def get_product_details(asin, page, retry_count=0):
         # 获取变体 ASIN
         variant_asins = await get_variants_asins(page)
 
+        # 获取评分 (Rating) 和评分数量 (Review Count)
+        rating = "Rating not found"
+        review_count = "Review count not found"
+        rating_element = await page.query_selector("#averageCustomerReviews .a-icon-alt")
+        review_count_element = await page.query_selector("#acrCustomerReviewText")
+
+        if rating_element:
+            rating_text = await rating_element.inner_text()
+            # 提取 "4.5 out of 5 stars" 中的 "4.5"
+            rating_match = re.search(r"(\d+\.\d+|\d+)", rating_text)
+            rating = rating_match.group(0) if rating_match else "Rating not found"
+
+        if review_count_element:
+            review_text = await review_count_element.inner_text()
+            # 提取 "1,234 ratings" 中的 "1234"，去掉逗号
+            review_match = re.search(r"(\d+,?\d*)", review_text)
+            review_count = review_match.group(0).replace(",", "") if review_match else "Review count not found"
+
         # 如果是重试成功，打印提示
         if retry_count > 0:
             print(f"🔄 ASIN {asin} 重试成功！")
@@ -122,14 +140,16 @@ async def get_product_details(asin, page, retry_count=0):
         return {
             "asin": asin,
             "brand": brand,
-            "brand_link": brand_link,  # 新增品牌链接
+            "brand_link": brand_link,
             "title": title,
             "price": price,
             "bought": bought,
             "fabric_type": fabric_type,
             "url": url,
             "frequently_returned": frequently_returned,
-            "variants": variant_asins
+            "variants": variant_asins,
+            "rating": rating,
+            "review_count": review_count  # 新增评分数量字段
         }
 
     except Exception as e:
