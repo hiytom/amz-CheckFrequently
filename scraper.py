@@ -8,7 +8,7 @@ import re  # 引入正则库
 
 COOKIES_FILE = "amazon_cookies.json"
 OUTPUT_FILE = "amazon_products.csv"
-MAX_RETRIES = 3  # 最大重试次数
+MAX_RETRIES = 5  # 保持重试次数为 5
 
 
 async def get_variants_asins(page):
@@ -30,12 +30,25 @@ async def get_product_details(asin, page, retry_count=0):
     print(f"📦 正在爬取商品详情: {url}")
 
     try:
-        # 随机延迟，减少风控（保持范围较小）
+        # 随机延迟，减少风控
         await asyncio.sleep(random.uniform(0.2, 0.8))
 
-        # 恢复 domcontentloaded，只等待主要内容加载
-        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
-        await page.wait_for_selector("#productTitle", timeout=30000)
+        # 使用随机 User-Agent 并保持 60 秒超时
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0"
+        ]
+        await page.set_extra_http_headers({"User-Agent": random.choice(user_agents)})
+        await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        await page.wait_for_selector("#productTitle", timeout=60000)
+
+        # 检查是否遇到验证码
+        captcha = await page.query_selector("input#captchacharacters")
+        if captcha:
+            print(f"❌ ASIN {asin} 遇到验证码，请手动解决后继续...")
+            await asyncio.sleep(30)  # 暂停 30 秒等待手动解决
+            await page.reload()
 
         # 获取商品标题
         title_element = await page.query_selector("#productTitle")
@@ -116,32 +129,22 @@ async def get_product_details(asin, page, retry_count=0):
             review_match = re.search(r"(\d+,?\d*)", review_text)
             review_count = review_match.group(0).replace(",", "") if review_match else "Review count not found"
 
-        # 获取 Date First Available（优化为单次查询 + 缓存选择器）
-        date_first_available = "Date not found"
-        date_selectors = [
-            "#detailBullets_feature_div li span:has-text('Date First Available')",
-            "#productDetails_detailBullets_sections1 tr:has-text('Date First Available') td",
-            "#productDetails_techSpec_section_1 tr:has-text('Date First Available') td",
-            "th.prodDetSectionEntry:has-text('Date First Available') + td"
-        ]
-
-        # 单次查询所有可能的选择器，减少循环开销
-        for selector in date_selectors:
-            date_element = await page.query_selector(selector)
-            if date_element:
-                date_value = await date_element.inner_text()
-                date_match = re.search(r"(?:\w+\s+\d{1,2},\s+\d{4}|\d{1,2}\s+\w+\s+\d{4})", date_value)
-                if date_match:
-                    date_first_available = date_match.group(0).strip()
-                    # 只在成功时打印日志，减少 I/O
-                    # print(f"ℹ️ 找到 Date First Available: {date_first_available} (使用选择器: {selector})")
-                    break
-                # 如果调试需要，可取消注释
-                # else:
-                #     print(f"ℹ️ 提取值非日期格式: {date_value} (选择器: {selector})")
-            # 如果调试需要，可取消注释
-            # else:
-            #     print(f"ℹ️ 未找到 Date First Available (选择器: {selector})")
+        # 获取负面词语 (Negative Aspects)
+        negative_aspects = []
+        insights_section = await page.query_selector("#cr-product-insights-cards")
+        if insights_section:
+            negative_elements = await insights_section.query_selector_all("a[data-csa-c-item-id*='_NEGATIVE']")
+            for elem in negative_elements:
+                aspect_text = await elem.inner_text()
+                aspect_cleaned = re.sub(r'[^a-zA-Z\s]', '', aspect_text).strip()
+                if aspect_cleaned:
+                    negative_aspects.append(aspect_cleaned)
+            if negative_aspects:
+                print(f"ℹ️ 找到负面词语: {negative_aspects}")
+            else:
+                print("ℹ️ 未找到负面词语")
+        else:
+            print("ℹ️ 未找到评论洞察模块")
 
         if retry_count > 0:
             print(f"🔄 ASIN {asin} 重试成功！")
@@ -160,14 +163,14 @@ async def get_product_details(asin, page, retry_count=0):
             "variants": variant_asins,
             "rating": rating,
             "review_count": review_count,
-            "date_first_available": date_first_available
+            "negative_aspects": negative_aspects
         }
 
     except Exception as e:
-        print(f"❌ 爬取失败: {asin}，错误: {e}")
+        print(f"❌ 爬取失败: {asin}，错误: {str(e)}")
         if retry_count < MAX_RETRIES:
             print(f"⚠️ ASIN {asin} 加入重试队列，重试次数: {retry_count + 1}")
-            await asyncio.sleep(random.uniform(1, 3))
+            await asyncio.sleep(random.uniform(2, 5))
             return await get_product_details(asin, page, retry_count + 1)
         else:
             print(f"🚨 ASIN {asin} 重试次数已达上限，放弃爬取")
