@@ -129,9 +129,21 @@ async def get_product_details(asin, page, retry_count=0):
             review_match = re.search(r"(\d+,?\d*)", review_text)
             review_count = review_match.group(0).replace(",", "") if review_match else "Review count not found"
 
+        # 获取 "Customers say" 总结文本
+        customer_say = "Customer say not found"
+        insights_section = await page.query_selector("#cr-product-insights-cards")
+        if insights_section:
+            summary_element = await insights_section.query_selector("#product-summary p span")
+            if summary_element:
+                customer_say = await summary_element.inner_text()
+                print(f"ℹ️ 找到 Customers say: {customer_say}")
+            else:
+                print("ℹ️ 未找到 Customers say 文本")
+        else:
+            print("ℹ️ 未找到评论洞察模块")
+
         # 获取负面词语 (Negative Aspects)
         negative_aspects = []
-        insights_section = await page.query_selector("#cr-product-insights-cards")
         if insights_section:
             negative_elements = await insights_section.query_selector_all("a[data-csa-c-item-id*='_NEGATIVE']")
             for elem in negative_elements:
@@ -143,8 +155,6 @@ async def get_product_details(asin, page, retry_count=0):
                 print(f"ℹ️ 找到负面词语: {negative_aspects}")
             else:
                 print("ℹ️ 未找到负面词语")
-        else:
-            print("ℹ️ 未找到评论洞察模块")
 
         if retry_count > 0:
             print(f"🔄 ASIN {asin} 重试成功！")
@@ -163,7 +173,8 @@ async def get_product_details(asin, page, retry_count=0):
             "variants": variant_asins,
             "rating": rating,
             "review_count": review_count,
-            "negative_aspects": negative_aspects
+            "negative_aspects": negative_aspects,
+            "customer_say": customer_say  # 新增 Customers say 字段
         }
 
     except Exception as e:
@@ -179,7 +190,7 @@ async def get_product_details(asin, page, retry_count=0):
 
 async def test_scraper():
     """ 测试爬取单个 ASIN，并递归爬取所有变体 """
-    test_asin = "B0C61QXH6F"
+    test_asin = "B0CN8SL6MV"
     scraped_data = {}
     to_scrape = [test_asin]
     seen_asins = set()
