@@ -41,6 +41,7 @@ async def get_product_details(asin, page, retry_count=0):
     """
     url = f"https://www.amazon.com/dp/{asin}"  # 构造商品详情页 URL
     print(f"📦 正在爬取商品详情: {url}")
+    start_time = time.perf_counter()  # 记录开始时间
     try:
         # 随机延迟，模拟人类行为，降低反爬风险
         await asyncio.sleep(random.uniform(0.2, 0.8))
@@ -169,7 +170,10 @@ async def get_product_details(asin, page, retry_count=0):
         # 如果是重试成功，提示用户
         if retry_count > 0:
             print(f"🔄 ASIN {asin} 重试成功！")
-        print(f"✅ 爬取成功")
+        # 计算耗时并输出
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+        print(f"✅ 爬取成功，耗时 {elapsed_time:.2f} 秒")
         # 返回所有抓取到的数据
         return {
             "asin": asin,
@@ -202,7 +206,7 @@ async def test_scraper():
     """
     测试抓取功能，从单个 ASIN 开始，递归抓取其变体，并输出结果。
     """
-    test_asin = "B01FIS88SY"  # 测试用的初始 ASIN
+    test_asin = "B0CN8SL6MV"  # 测试用的初始 ASIN
     scraped_data = {}  # 存储抓取结果
     to_scrape = [test_asin]  # 待抓取的 ASIN 队列
     seen_asins = set()  # 记录已处理的 ASIN
