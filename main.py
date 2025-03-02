@@ -5,18 +5,22 @@ from search import search_products  # 导入搜索模块，获取 ASIN 列表
 from scraper import get_product_details  # 导入抓取模块，获取商品详情
 from playwright.async_api import async_playwright  # 导入 Playwright 的异步 API
 import time
+import os
+from datetime import datetime  # 新增时间模块
 
 # 配置文件的路径
 CONFIG_FILE = "config.json"
+# CSV 文件保存目录
+CSV_DIR = "csv"  # 直接定义，不检查和创建
 
 # 读取配置文件，获取全局参数
 with open(CONFIG_FILE, "r") as f:
     config = json.load(f)
 
 # 从配置文件中提取参数
-SEARCH_QUERY = config["search_query"]  # 搜索关键词，例如 "floral apron"
-CSV_FILE = config["csv_file"]  # 保存 ASIN 列表的 CSV 文件名
-OUTPUT_FILE = config["output_file"]  # 保存最终商品数据的 CSV 文件名
+SEARCH_QUERIES = config["search_query"]  # 搜索关键词列表，例如 ["toilet paper holder", "vintage apron"]
+CSV_FILE_BASE = config["csv_file"]  # 保存 ASIN 列表的 CSV 文件基础名
+OUTPUT_FILE_BASE = config["output_file"]  # 保存最终商品数据的 CSV 文件基础名
 MAX_WORKERS = config["max_processes"]  # 最大并行任务数
 MAX_PAGES = config["max_pages"]  # 搜索结果的最大翻页数
 COOKIES_FILE = config["cookies_file"]  # Cookies 文件路径，用于模拟登录
@@ -50,13 +54,16 @@ async def worker(queue, context, results, seen_asins, failed_asins):
         else:  # 如果抓取失败
             failed_asins.add(asin)  # 记录失败的 ASIN
 
-# 定义主函数，协调搜索和抓取流程
-async def main():
-    """主函数：负责搜索 ASIN、创建任务队列、并行抓取商品详情并保存结果"""
+async def process_query(query, csv_file_base, output_file_base):
+    """处理单个搜索词的爬取流程"""
+    timestamp = datetime.now().strftime("%Y%m%d%H%M")  # 生成时间戳，如 202503011430
+    csv_file_path = os.path.join(CSV_DIR, f"{query}_{timestamp}_{csv_file_base}")
+    output_file_path = os.path.join(CSV_DIR, f"{query}_{timestamp}_{output_file_base}")
+    
     # 调用 search_products 获取 ASIN 列表
-    asins = await search_products(SEARCH_QUERY, CSV_FILE, MAX_PAGES)
-    if not asins:  # 如果没有找到 ASIN，退出程序
-        print("❌ 没有找到 ASIN，退出程序！")
+    asins = await search_products(query, csv_file_path, MAX_PAGES)
+    if not asins:  # 如果没有找到 ASIN，跳过
+        print(f"❌ 没有找到 ASIN for '{query}'，跳过！")
         return
 
     # 创建任务队列，用于分发 ASIN 给工作进程
@@ -81,9 +88,9 @@ async def main():
             with open(COOKIES_FILE, "r") as f:
                 cookies = json.load(f)
                 await context.add_cookies(cookies)  # 将 Cookies 添加到上下文
-                print("✅ 已加载 Amazon 登录 Cookies")
+                print(f"✅ 已加载 Amazon 登录 Cookies for '{query}'")
         except:
-            print("⚠️ 没有找到 Cookies，可能需要先运行 `login.py` 手动登录")
+            print(f"⚠️ 没有找到 Cookies，可能需要先运行 `login.py` 手动登录")
             await browser.close()
             return
 
@@ -94,34 +101,41 @@ async def main():
         await asyncio.gather(*tasks)  # 等待所有任务完成
         await browser.close()  # 关闭浏览器
 
-    # 如果没有抓取到数据，提示并退出
-    if not results:
-        print("❌ 没有爬取到数据")
-        return
+        # 如果没有抓取到数据，提示并返回
+        if not results:
+            print(f"❌ 没有爬取到数据 for '{query}'")
+            return
 
-    # 从第一个结果动态获取字段名
-    fieldnames = list(results[0].keys())
-    # 将结果写入 CSV 文件
-    with open(SEARCH_QUERY + OUTPUT_FILE, "w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        # 排除 url 和 brand_link 字段，生成表头
-        field_names = [field for field in fieldnames if field not in ["url", "brand_link"]]
-        writer.writerow(field_names)  # 写入表头
-        # 遍历所有抓取结果
-        for product_data in results:
-            # 将 ASIN 转换为超链接格式
-            product_data["asin"] = f'=HYPERLINK("https://www.amazon.com/dp/{product_data["asin"]}", "{product_data["asin"]}")'
-            # 如果有品牌链接，将品牌转换为超链接
-            if product_data.get("brand_link"):
-                product_data["brand"] = f'=HYPERLINK("{product_data["brand_link"]}", "{product_data.get("brand", "N/A")}")'
-            # 写入一行数据，使用 get 方法避免字段缺失
-            writer.writerow([product_data.get(field, "N/A") for field in field_names])
+        # 从第一个结果动态获取字段名
+        fieldnames = list(results[0].keys())
+        # 将结果写入 CSV 文件
+        with open(output_file_path, "w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            # 排除 url 和 brand_link 字段，生成表头
+            field_names = [field for field in fieldnames if field not in ["url", "brand_link"]]
+            writer.writerow(field_names)  # 写入表头
+            # 遍历所有抓取结果
+            for product_data in results:
+                # 将 ASIN 转换为超链接格式
+                product_data["asin"] = f'=HYPERLINK("https://www.amazon.com/dp/{product_data["asin"]}", "{product_data["asin"]}")'
+                # 如果有品牌链接，将品牌转换为超链接
+                if product_data.get("brand_link"):
+                    product_data["brand"] = f'=HYPERLINK("{product_data["brand_link"]}", "{product_data.get("brand", "N/A")}")'
+                # 写入一行数据，使用 get 方法避免字段缺失
+                writer.writerow([product_data.get(field, "N/A") for field in field_names])
 
-    # 输出抓取统计信息
-    total_asins = len(asins)
-    successful_asins = len(results)
-    failed_count = total_asins - successful_asins
-    print(f"\n🎉 所有商品信息已保存到 `{SEARCH_QUERY + OUTPUT_FILE}`！共爬取 {total_asins} 个 ASIN，成功 {successful_asins} 个，失败 {failed_count} 个，失败的 ASIN: {list(failed_asins)}")
+        # 输出抓取统计信息
+        total_asins = len(asins)
+        successful_asins = len(results)
+        failed_count = total_asins - successful_asins
+        print(f"\n🎉 '{query}' 商品信息已保存到 `{output_file_path}`！共爬取 {total_asins} 个 ASIN，成功 {successful_asins} 个，失败 {failed_count} 个，失败的 ASIN: {list(failed_asins)}")
+
+# 定义主函数，协调搜索和抓取流程
+async def main():
+    """主函数：负责循环处理所有搜索词并调用爬取流程"""
+    for query in SEARCH_QUERIES:
+        print(f"\n=== 开始处理搜索词: {query} ===")
+        await process_query(query, CSV_FILE_BASE, OUTPUT_FILE_BASE)
 
 # 程序入口，运行主函数并计时
 if __name__ == "__main__":
