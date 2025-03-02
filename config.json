@@ -1,8 +1,11 @@
 {
-  "search_query": "floral apron",
+  "search_query": [
+    "faux fur shawl",
+    "Pressed Flower Earrings"
+  ],
   "csv_file": "amazon_asins.csv",
   "output_file": "amazon_listings.csv",
   "max_processes": 10,
-  "max_pages": 1,
+  "max_pages": 4,
   "cookies_file": "amazon_cookies.json"
 }
