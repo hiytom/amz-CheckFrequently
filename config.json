@@ -1,7 +1,6 @@
 {
   "search_query": [
-    "faux fur shawl",
-    "Pressed Flower Earrings"
+    "leather toiletry bag"
   ],
   "csv_file": "amazon_asins.csv",
   "output_file": "amazon_listings.csv",
