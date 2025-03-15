@@ -74,7 +74,10 @@ async def worker(queue, context, results, seen_asins, failed_asins):
         except asyncio.CancelledError:
             logging.warning(f"⚠️ 任务处理 ASIN {asin} 被取消")
             if page is not None:  # 检查 page 是否已创建
-                await page.close()
+                try:
+                    await page.close()
+                except Exception as e:
+                    logging.debug(f"关闭页面 {asin} 时出错: {str(e)}")
             queue.task_done()
             raise
 
@@ -109,7 +112,10 @@ async def process_query(query, csv_file_base, output_file_base, browser, task_li
             logging.info(f"✅ 已加载 Amazon 登录 Cookies for '{query}'")
     except:
         logging.warning(f"⚠️ 没有找到 Cookies，可能需要先运行 `login.py` 手动登录")
-        await context.close()
+        try:
+            await context.close()
+        except Exception as e:
+            logging.debug(f"关闭上下文时出错: {str(e)}")
         return
 
     # 初始化结果列表
@@ -123,10 +129,23 @@ async def process_query(query, csv_file_base, output_file_base, browser, task_li
         await asyncio.gather(*tasks)  # 等待所有任务完成
     except asyncio.CancelledError:
         logging.warning(f"⚠️ 处理 '{query}' 的任务被取消")
-        await context.close()
+        # 确保所有任务被取消并完成
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        # 关闭上下文，不处理异常
+        try:
+            await context.close()
+        except Exception:
+            pass  # 忽略关闭时的异常
         raise
 
-    await context.close()  # 关闭上下文
+    # 正常完成时关闭上下文
+    try:
+        await context.close()
+    except Exception as e:
+        logging.debug(f"关闭上下文时出错: {str(e)}")
 
     # 如果没有抓取到数据，提示并返回
     if not results:
@@ -174,24 +193,30 @@ async def main():
             logging.warning("用户中断程序，正在清理资源...")
             # 取消所有正在运行的任务
             for task in task_list:
-                task.cancel()
-            try:
-                await asyncio.gather(*task_list, return_exceptions=True)
-            except asyncio.CancelledError:
-                pass
-            # 关闭浏览器
+                if not task.done():
+                    task.cancel()
+            # 等待任务完成并忽略异常
+            await asyncio.gather(*task_list, return_exceptions=True)
+            # 关闭浏览器，不处理异常
             try:
                 await browser.close()
-            except Exception as e:
-                logging.error(f"关闭浏览器时出错: {str(e)}")
+            except Exception:
+                pass  # 忽略关闭时的异常
             logging.info("程序已优雅退出")
+            # 清理事件循环中的未完成任务
+            loop = asyncio.get_running_loop()
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
             return
         finally:
             # 确保浏览器在正常完成时也被关闭
             try:
                 await browser.close()
             except Exception as e:
-                logging.error(f"关闭浏览器时出错: {str(e)}")
+                logging.debug(f"关闭浏览器时出错: {str(e)}")
 
 # 程序入口，运行主函数并计时
 if __name__ == "__main__":
