@@ -1,12 +1,23 @@
 import asyncio
 import csv
 import json
+import logging
 from search import search_products  # 导入搜索模块，获取 ASIN 列表
 from scraper import get_product_details  # 导入抓取模块，获取商品详情
 from playwright.async_api import async_playwright  # 导入 Playwright 的异步 API
 import time
 import os
 from datetime import datetime  # 新增时间模块
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,  # 设置默认日志级别为 INFO
+    format="%(asctime)s - %(levelname)s - %(message)s",  # 日志格式：时间 - 级别 - 消息
+    handlers=[
+        logging.StreamHandler(),  # 输出到控制台
+        logging.FileHandler("crawler.log", encoding="utf-8")  # 输出到文件
+    ]
+)
 
 # 配置文件的路径
 CONFIG_FILE = "config.json"
@@ -39,10 +50,16 @@ async def worker(queue, context, results, seen_asins, failed_asins):
     while not queue.empty():  # 当队列不为空时持续处理
         try:
             asin = await queue.get()  # 从队列中获取一个 ASIN
+        except asyncio.CancelledError:
+            logging.warning("⚠️ 获取 ASIN 时任务被取消")
+            queue.task_done()
+            raise
+        page = None  # 初始化 page 为 None
+        try:
             if asin in seen_asins:  # 如果 ASIN 已处理过，跳过
                 queue.task_done()  # 标记任务完成
                 continue
-            print(f"🛒 任务队列领取 ASIN: {asin}")  # 显示当前处理的 ASIN
+            logging.info(f"🛒 任务队列领取 ASIN: {asin}")  # 显示当前处理的 ASIN
             page = await context.new_page()  # 创建新页面
             # 拦截并禁用不必要的资源请求，优化加载速度
             await page.route("**/*.{png,jpg,jpeg,gif,svg,webp,css,woff,woff2,js,mp4,webm}", lambda route: route.abort())
@@ -55,11 +72,11 @@ async def worker(queue, context, results, seen_asins, failed_asins):
             else:  # 如果抓取失败
                 failed_asins.add(asin)  # 记录失败的 ASIN
         except asyncio.CancelledError:
-            print(f"⚠️ 任务处理 ASIN {asin} 被取消")
-            if 'page' in locals():
+            logging.warning(f"⚠️ 任务处理 ASIN {asin} 被取消")
+            if page is not None:  # 检查 page 是否已创建
                 await page.close()
             queue.task_done()
-            raise  # 重新抛出 CancelledError 以确保任务被正确取消
+            raise
 
 async def process_query(query, csv_file_base, output_file_base, browser, task_list):
     """处理单个搜索词的爬取流程"""
@@ -70,7 +87,7 @@ async def process_query(query, csv_file_base, output_file_base, browser, task_li
     # 调用 search_products 获取 ASIN 列表
     asins = await search_products(query, csv_file_path, MAX_PAGES)
     if not asins:  # 如果没有找到 ASIN，跳过
-        print(f"❌ 没有找到 ASIN for '{query}'，跳过！")
+        logging.warning(f"❌ 没有找到 ASIN for '{query}'，跳过！")
         return
 
     # 创建任务队列，用于分发 ASIN 给工作进程
@@ -89,9 +106,9 @@ async def process_query(query, csv_file_base, output_file_base, browser, task_li
         with open(COOKIES_FILE, "r") as f:
             cookies = json.load(f)
             await context.add_cookies(cookies)  # 将 Cookies 添加到上下文
-            print(f"✅ 已加载 Amazon 登录 Cookies for '{query}'")
+            logging.info(f"✅ 已加载 Amazon 登录 Cookies for '{query}'")
     except:
-        print(f"⚠️ 没有找到 Cookies，可能需要先运行 `login.py` 手动登录")
+        logging.warning(f"⚠️ 没有找到 Cookies，可能需要先运行 `login.py` 手动登录")
         await context.close()
         return
 
@@ -105,7 +122,7 @@ async def process_query(query, csv_file_base, output_file_base, browser, task_li
     try:
         await asyncio.gather(*tasks)  # 等待所有任务完成
     except asyncio.CancelledError:
-        print(f"⚠️ 处理 '{query}' 的任务被取消")
+        logging.warning(f"⚠️ 处理 '{query}' 的任务被取消")
         await context.close()
         raise
 
@@ -113,7 +130,7 @@ async def process_query(query, csv_file_base, output_file_base, browser, task_li
 
     # 如果没有抓取到数据，提示并返回
     if not results:
-        print(f"❌ 没有爬取到数据 for '{query}'")
+        logging.warning(f"❌ 没有爬取到数据 for '{query}'")
         return
 
     # 从第一个结果动态获取字段名
@@ -138,7 +155,7 @@ async def process_query(query, csv_file_base, output_file_base, browser, task_li
     total_asins = len(asins)
     successful_asins = len(results)
     failed_count = total_asins - successful_asins
-    print(f"\n🎉 '{query}' 商品信息已保存到 `{output_file_path}`！共爬取 {total_asins} 个 ASIN，成功 {successful_asins} 个，失败 {failed_count} 个，失败的 ASIN: {list(failed_asins)}")
+    logging.info(f"🎉 '{query}' 商品信息已保存到 `{output_file_path}`！共爬取 {total_asins} 个 ASIN，成功 {successful_asins} 个，失败 {failed_count} 个，失败的 ASIN: {list(failed_asins)}")
 
 # 定义主函数，协调搜索和抓取流程
 async def main():
@@ -151,10 +168,10 @@ async def main():
         )
         try:
             for query in SEARCH_QUERIES:
-                print(f"\n=== 开始处理搜索词: {query} ===")
+                logging.info(f"=== 开始处理搜索词: {query} ===")
                 await process_query(query, CSV_FILE_BASE, OUTPUT_FILE_BASE, browser, task_list)
         except KeyboardInterrupt:
-            print("\n⚠️ 用户中断程序，正在清理资源...")
+            logging.warning("用户中断程序，正在清理资源...")
             # 取消所有正在运行的任务
             for task in task_list:
                 task.cancel()
@@ -166,15 +183,15 @@ async def main():
             try:
                 await browser.close()
             except Exception as e:
-                print(f"⚠️ 关闭浏览器时出错: {str(e)}")
-            print("✅ 程序已优雅退出")
+                logging.error(f"关闭浏览器时出错: {str(e)}")
+            logging.info("程序已优雅退出")
             return
         finally:
             # 确保浏览器在正常完成时也被关闭
             try:
                 await browser.close()
             except Exception as e:
-                print(f"⚠️ 关闭浏览器时出错: {str(e)}")
+                logging.error(f"关闭浏览器时出错: {str(e)}")
 
 # 程序入口，运行主函数并计时
 if __name__ == "__main__":
@@ -182,10 +199,10 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())  # 运行异步主函数
     except KeyboardInterrupt:
-        print("\n⚠️ 用户中断程序，程序已退出")
+        logging.warning("用户中断程序，程序已退出")
     finally:
         end_time = time.perf_counter()  # 记录结束时间
         total_time = end_time - start_time  # 计算总耗时
-        print("=" * 50)
-        print(f"⏳ 整个 `main.py` 运行时间: {total_time:.2f} 秒")
-        print("=" * 50)
+        logging.info("=" * 50)
+        logging.info(f"整个 `main.py` 运行时间: {total_time:.2f} 秒")
+        logging.info("=" * 50)

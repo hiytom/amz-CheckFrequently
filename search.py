@@ -1,7 +1,18 @@
+import logging
 from playwright.async_api import async_playwright
 import asyncio
 import random
 import csv
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("crawler.log", encoding="utf-8")
+    ]
+)
 
 async def search_products(query, csv_file, max_pages=1):
     """
@@ -30,21 +41,21 @@ async def search_products(query, csv_file, max_pages=1):
             "Upgrade-Insecure-Requests": "1"
         })
 
-        print(f"🔍 正在搜索关键词: {query}")  # 显示搜索关键词
+        logging.info(f"🔍 正在搜索关键词: {query}")  # 显示搜索关键词
         await page.goto(search_url, timeout=90000)  # 访问搜索页面
         await page.wait_for_selector("div.s-main-slot", timeout=60000)  # 等待搜索结果加载
 
         while current_page <= max_pages:
-            print(f"📄 正在爬取第 {current_page} 页...")
+            logging.info(f"📄 正在爬取第 {current_page} 页...")
             # 获取当前页的 ASIN
             asin_elements = await page.query_selector_all("div.s-main-slot div[data-asin]")
             current_asins = [await elem.get_attribute("data-asin") for elem in asin_elements if await elem.get_attribute("data-asin")]
 
             if not current_asins:  # 如果未找到 ASIN，可能触发反爬
-                print("⚠️ 没有找到 ASIN，可能触发了反爬机制！")
+                logging.warning("⚠️ 没有找到 ASIN，可能触发了反爬机制！")
                 break
 
-            print(f"✅ 第 {current_page} 页找到 {len(current_asins)} 个 ASIN")
+            logging.info(f"✅ 第 {current_page} 页找到 {len(current_asins)} 个 ASIN")
             asin_list.extend(current_asins)  # 添加到总列表
 
             # 随机休息 3-5 秒，降低反爬风险
@@ -54,12 +65,12 @@ async def search_products(query, csv_file, max_pages=1):
             next_button = await page.query_selector('a.s-pagination-next')
             class_attr = (await next_button.get_attribute("class")) or "" if next_button else ""
             if current_page < max_pages and next_button and "s-pagination-disabled" not in class_attr:
-                print("➡️ 翻页中...")
+                logging.info("➡️ 翻页中...")
                 await next_button.click()
                 await asyncio.sleep(random.uniform(3, 5))  # 等待页面加载
                 current_page += 1
             else:
-                print(f"🚀 所有搜索结果已爬取完毕！共找到 {len(asin_list)} 个 ASIN")  # 输出总 ASIN 数
+                logging.info(f"🚀 所有搜索结果已爬取完毕！共找到 {len(asin_list)} 个 ASIN")  # 输出总 ASIN 数
                 break
 
         await browser.close()  # 关闭浏览器
@@ -71,7 +82,7 @@ async def search_products(query, csv_file, max_pages=1):
             writer.writerow(["ASIN"])  # 写入表头
             for asin in asin_list:
                 writer.writerow([asin])  # 写入每行 ASIN
-        print(f"✅ ASIN 列表已保存到 {csv_file}")
+        logging.info(f"✅ ASIN 列表已保存到 {csv_file}")
 
     return asin_list  # 返回 ASIN 列表
 

@@ -1,10 +1,21 @@
 import asyncio
+import logging
 from playwright.async_api import async_playwright  # 导入 Playwright 的异步 API
 import json
 import random
 import pandas as pd  # 用于将数据保存为 CSV
 import time
 import re  # 用于正则表达式处理
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("crawler.log", encoding="utf-8")
+    ]
+)
 
 # 定义常量
 COOKIES_FILE = "amazon_cookies.json"  # Cookies 文件路径，用于模拟登录
@@ -40,7 +51,7 @@ async def get_product_details(asin, page, retry_count=0):
     :return: dict，包含商品详情；若失败或非详情页，返回 None
     """
     url = f"https://www.amazon.com/dp/{asin}"  # 构造商品详情页 URL
-    print(f"📦 正在爬取商品详情: {url}")
+    logging.info(f"📦 正在爬取商品详情: {url}")
     start_time = time.perf_counter()  # 记录开始时间
     try:
         # 随机延迟，模拟人类行为，降低反爬风险
@@ -61,13 +72,13 @@ async def get_product_details(asin, page, retry_count=0):
         price_element = await page.query_selector("span.a-price") or await page.query_selector("span.a-offscreen")  # 价格元素
         if not title_element and not price_element:  # 如果标题和价格都不存在，认为是非详情页
             content = await page.content()
-            print(f"⚠️ ASIN {asin} 不是商品详情页，跳过爬取。页面内容: {content[:500]}")
+            logging.warning(f"⚠️ ASIN {asin} 不是商品详情页，跳过爬取。页面内容: {content[:500]}")
             return None
 
         # 检查是否遇到验证码
         captcha = await page.query_selector("input#captchacharacters")
         if captcha:
-            print(f"❌ ASIN {asin} 遇到验证码，暂停等待手动解决...")
+            logging.warning(f"❌ ASIN {asin} 遇到验证码，暂停等待手动解决...")
             await asyncio.sleep(60)  # 暂停 60 秒，等待手动解决
             await page.reload()  # 重新加载页面
 
@@ -169,11 +180,11 @@ async def get_product_details(asin, page, retry_count=0):
 
         # 如果是重试成功，提示用户
         if retry_count > 0:
-            print(f"🔄 ASIN {asin} 重试成功！")
+            logging.info(f"🔄 ASIN {asin} 重试成功！")
         # 计算耗时并输出
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
-        print(f"✅ 爬取成功，耗时 {elapsed_time:.2f} 秒")
+        logging.info(f"✅ 爬取成功，耗时 {elapsed_time:.2f} 秒")
         # 返回所有抓取到的数据
         return {
             "asin": asin,
@@ -192,13 +203,13 @@ async def get_product_details(asin, page, retry_count=0):
             "customer_say": customer_say
         }
     except Exception as e:
-        print(f"❌ 爬取失败: {asin}，错误: {str(e)}")
+        logging.error(f"❌ 爬取失败: {asin}，错误: {str(e)}")
         if retry_count < MAX_RETRIES:  # 如果未达到最大重试次数，继续尝试
-            print(f"⚠️ ASIN {asin} 加入重试队列，重试次数: {retry_count + 1}")
+            logging.warning(f"⚠️ ASIN {asin} 加入重试队列，重试次数: {retry_count + 1}")
             await asyncio.sleep(random.uniform(2, 5))  # 随机延迟后重试
             return await get_product_details(asin, page, retry_count + 1)
         else:
-            print(f"🚨 ASIN {asin} 重试次数已达上限，放弃爬取")
+            logging.error(f"🚨 ASIN {asin} 重试次数已达上限，放弃爬取")
             return None  # 重试失败，返回 None
 
 # 测试函数，用于单个 ASIN 的抓取和调试
@@ -221,9 +232,9 @@ async def test_scraper():
             with open(COOKIES_FILE, "r") as f:
                 cookies = json.load(f)
                 await context.add_cookies(cookies)
-                print("✅ 已加载 Amazon 登录 Cookies")
+                logging.info("✅ 已加载 Amazon 登录 Cookies")
         except:
-            print("⚠️ 没有找到 Cookies，可能需要先运行 `login.py` 手动登录")
+            logging.warning("⚠️ 没有找到 Cookies，可能需要先运行 `login.py` 手动登录")
             await browser.close()
             return
         page = await context.new_page()  # 创建新页面
@@ -251,19 +262,19 @@ async def test_scraper():
         # 将结果保存为 CSV
         df = pd.DataFrame(scraped_data.values())
         df.to_csv(OUTPUT_FILE, index=False)
-        print(f"✅ 数据已保存到 {OUTPUT_FILE}")
+        logging.info(f"✅ 数据已保存到 {OUTPUT_FILE}")
 
         # 打印所有抓取到的数据，方便调试
-        print("\n🛒 爬取完成！所有数据如下：")
+        logging.info("🛒 爬取完成！所有数据如下：")
         for asin, data in scraped_data.items():
-            print("=" * 50)
-            print(f"ASIN: {asin}")
+            logging.info("=" * 50)
+            logging.info(f"ASIN: {asin}")
             for key, value in data.items():
                 if key != "asin":  # ASIN 已单独打印，避免重复
-                    print(f"{key}: {value}")
-        print("=" * 50)
-        print(f"⏱️ 总爬取时间: {total_time:.2f} 秒")
-        print("=" * 50)
+                    logging.info(f"{key}: {value}")
+        logging.info("=" * 50)
+        logging.info(f"⏱️ 总爬取时间: {total_time:.2f} 秒")
+        logging.info("=" * 50)
 
 # 程序入口，运行测试函数
 if __name__ == "__main__":

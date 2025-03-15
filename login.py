@@ -1,8 +1,18 @@
+import logging
 from playwright.sync_api import sync_playwright
 import json
 
-COOKIES_FILE = "amazon_cookies.json"
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("crawler.log", encoding="utf-8")
+    ]
+)
 
+COOKIES_FILE = "amazon_cookies.json"
 
 def save_amazon_cookies():
     with sync_playwright() as p:
@@ -10,17 +20,16 @@ def save_amazon_cookies():
         page = browser.new_page()
 
         # **打开 Amazon 首页**
-        print("🔑 打开 Amazon 首页...")
+        logging.info("🔑 打开 Amazon 首页...")
         page.goto("https://www.amazon.com/", timeout=90000)
 
         # **点击 "Sign In" 按钮**
-        print("➡️ 点击登录按钮...")
-        sign_in_button = page.query_selector(
-            "#nav-link-accountList")  # Amazon 登录按钮
+        logging.info("➡️ 点击登录按钮...")
+        sign_in_button = page.query_selector("#nav-link-accountList")  # Amazon 登录按钮
         if sign_in_button:
             sign_in_button.click()
         else:
-            print("⚠️ 没找到 'Sign In' 按钮，可能 Amazon 页面改版了")
+            logging.warning("⚠️ 没找到 'Sign In' 按钮，可能 Amazon 页面改版了")
             return
 
         # **等待用户手动完成登录**
@@ -31,9 +40,8 @@ def save_amazon_cookies():
         with open(COOKIES_FILE, "w") as f:
             json.dump(cookies, f)
 
-        print("✅ 登录成功，Cookies 已保存到 `amazon_cookies.json`")
+        logging.info("✅ 登录成功，Cookies 已保存到 `amazon_cookies.json`")
         browser.close()
-
 
 if __name__ == "__main__":
     save_amazon_cookies()
