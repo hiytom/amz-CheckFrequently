@@ -52,7 +52,8 @@ async def search_products(query, csv_file, max_pages=1):
 
             # 处理翻页逻辑
             next_button = await page.query_selector('a.s-pagination-next')
-            if current_page < max_pages and next_button and "s-pagination-disabled" not in (await next_button.get_attribute("class")):
+            class_attr = (await next_button.get_attribute("class")) or "" if next_button else ""
+            if current_page < max_pages and next_button and "s-pagination-disabled" not in class_attr:
                 print("➡️ 翻页中...")
                 await next_button.click()
                 await asyncio.sleep(random.uniform(3, 5))  # 等待页面加载
